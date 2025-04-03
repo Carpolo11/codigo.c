@@ -1,74 +1,99 @@
-/*
- * IPC usando archivos FIFO en Linux
- * Este programa muestra cómo un proceso puede comunicarse con otro
- * utilizando un FIFO (named pipe).
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <fcntl.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #include <sys/types.h>
-#include <sys/stat.h>
+#include <sys/wait.h>
+#include <stdbool.h>
 
-#define FIFO_PATH "./myfifo"
-#define BUFFER_SIZE 100
+#define SHM_SIZE 1024  // Tamaño de la memoria compartida
 
-// Función para el proceso escritor
-void writer() {
-    int fd;
-    char message[] = "Hola desde el proceso escritor!";
+typedef struct {
+    char message[SHM_SIZE];
+    bool turno; // Control de turno: true = escritor1, false = escritor2
+} SharedMemory;
 
-    // Crear FIFO si no existe
-    mkfifo(FIFO_PATH, 0666);
+void processA() {
+    int shmid;
+    SharedMemory *shm_ptr;
+    key_t key = 1234;
 
-    // Abrir FIFO en modo escritura
-    fd = open(FIFO_PATH, O_WRONLY);
-    if (fd == -1) {
-        perror("Error al abrir FIFO para escritura");
+    // Crear o obtener el segmento de memoria compartida
+    shmid = shmget(key, sizeof(SharedMemory), IPC_CREAT | 0666);
+    if (shmid == -1) {
+        perror("Error al crear segmento de memoria compartida");
         exit(EXIT_FAILURE);
     }
 
-    // Escribir en FIFO
-    write(fd, message, strlen(message) + 1);
-    close(fd);
+    // Adjuntar el segmento al espacio de direcciones
+    shm_ptr = (SharedMemory *)shmat(shmid, NULL, 0);
+    if (shm_ptr == (SharedMemory *)(-1)) {
+        perror("Error al adjuntar la memoria compartida");
+        exit(EXIT_FAILURE);
+    }
+
+    for (int i = 0; i < 5; i++) {
+        while (!shm_ptr->turno) {
+            usleep(100000); // Espera activa
+        }
+        snprintf(shm_ptr->message, SHM_SIZE, "Mensaje %d desde Proceso A", i);
+        printf("Proceso A escribió: %s\n", shm_ptr->message);
+        shm_ptr->turno = false;
+    }
+
+    // Desadjuntar la memoria compartida
+    shmdt(shm_ptr);
 }
 
-// Función para el proceso lector
-void reader() {
-    int fd;
-    char buffer[BUFFER_SIZE];
+void processB() {
+    int shmid;
+    SharedMemory *shm_ptr;
+    key_t key = 1234;
 
-    // Abrir FIFO en modo lectura
-    fd = open(FIFO_PATH, O_RDONLY);
-    if (fd == -1) {
-        perror("Error al abrir FIFO para lectura");
+    // Obtener el ID del segmento de memoria compartida
+    shmid = shmget(key, sizeof(SharedMemory), 0666);
+    if (shmid == -1) {
+        perror("Error al obtener el segmento de memoria compartida");
         exit(EXIT_FAILURE);
     }
 
-    // Leer desde FIFO
-    read(fd, buffer, BUFFER_SIZE);
-    printf("Proceso lector recibió: %s\n", buffer);
-    close(fd);
+    // Adjuntar el segmento al espacio de direcciones
+    shm_ptr = (SharedMemory *)shmat(shmid, NULL, 0);
+    if (shm_ptr == (SharedMemory *)(-1)) {
+        perror("Error al adjuntar la memoria compartida");
+        exit(EXIT_FAILURE);
+    }
 
-    // Eliminar FIFO
-    unlink(FIFO_PATH);
+    for (int i = 0; i < 5; i++) {
+        while (shm_ptr->turno) {
+            usleep(100000); // Espera activa
+        }
+        printf("Proceso B leyó: %s\n", shm_ptr->message);
+        snprintf(shm_ptr->message, SHM_SIZE, "Mensaje %d desde Proceso B", i);
+        printf("Proceso B escribió: %s\n", shm_ptr->message);
+        shm_ptr->turno = true;
+    }
+
+    // Desadjuntar la memoria compartida
+    shmdt(shm_ptr);
+    shmctl(shmid, IPC_RMID, NULL); // Eliminar memoria compartida al finalizar
 }
 
-int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        fprintf(stderr, "Uso: %s [writer|reader]\n", argv[0]);
+int main() {
+    int pid = fork();
+
+    if (pid < 0) {
+        perror("Error al crear el proceso");
         exit(EXIT_FAILURE);
     }
 
-    if (strcmp(argv[1], "writer") == 0) {
-        writer();
-    } else if (strcmp(argv[1], "reader") == 0) {
-        reader();
+    if (pid == 0) {
+        processA();
     } else {
-        fprintf(stderr, "Opción inválida. Usa 'writer' o 'reader'.\n");
-        exit(EXIT_FAILURE);
+        processB();
+        wait(NULL); // Esperar a que termine el proceso hijo
     }
 
     return 0;
