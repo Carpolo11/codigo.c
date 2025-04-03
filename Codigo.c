@@ -15,12 +15,35 @@ typedef struct {
     bool turno; // Control de turno: true = escritor1, false = escritor2
 } SharedMemory;
 
-void processA() {
+void processA(SharedMemory *shm_ptr) {
+    for (int i = 0; i < 5; i++) {
+        while (!shm_ptr->turno) {
+            usleep(100000); // Espera activa
+        }
+        snprintf(shm_ptr->message, SHM_SIZE, "Mensaje %d desde Proceso A", i);
+        printf("Proceso A escribió: %s\n", shm_ptr->message);
+        shm_ptr->turno = false;
+    }
+}
+
+void processB(SharedMemory *shm_ptr) {
+    for (int i = 0; i < 5; i++) {
+        while (shm_ptr->turno) {
+            usleep(100000); // Espera activa
+        }
+        printf("Proceso B leyó: %s\n", shm_ptr->message);
+        snprintf(shm_ptr->message, SHM_SIZE, "Mensaje %d desde Proceso B", i);
+        printf("Proceso B escribió: %s\n", shm_ptr->message);
+        shm_ptr->turno = true;
+    }
+}
+
+int main() {
     int shmid;
     SharedMemory *shm_ptr;
     key_t key = 1234;
 
-    // Crear o obtener el segmento de memoria compartida
+    // Crear el segmento de memoria compartida antes del fork
     shmid = shmget(key, sizeof(SharedMemory), IPC_CREAT | 0666);
     if (shmid == -1) {
         perror("Error al crear segmento de memoria compartida");
@@ -34,66 +57,25 @@ void processA() {
         exit(EXIT_FAILURE);
     }
 
-    for (int i = 0; i < 5; i++) {
-        while (!shm_ptr->turno) {
-            usleep(100000); // Espera activa
-        }
-        snprintf(shm_ptr->message, SHM_SIZE, "Mensaje %d desde Proceso A", i);
-        printf("Proceso A escribió: %s\n", shm_ptr->message);
-        shm_ptr->turno = false;
-    }
+    // Inicializar la estructura compartida
+    shm_ptr->turno = true;
+    memset(shm_ptr->message, 0, SHM_SIZE);
 
-    // Desadjuntar la memoria compartida
-    shmdt(shm_ptr);
-}
-
-void processB() {
-    int shmid;
-    SharedMemory *shm_ptr;
-    key_t key = 1234;
-
-    // Obtener el ID del segmento de memoria compartida
-    shmid = shmget(key, sizeof(SharedMemory), 0666);
-    if (shmid == -1) {
-        perror("Error al obtener el segmento de memoria compartida");
-        exit(EXIT_FAILURE);
-    }
-
-    // Adjuntar el segmento al espacio de direcciones
-    shm_ptr = (SharedMemory *)shmat(shmid, NULL, 0);
-    if (shm_ptr == (SharedMemory *)(-1)) {
-        perror("Error al adjuntar la memoria compartida");
-        exit(EXIT_FAILURE);
-    }
-
-    for (int i = 0; i < 5; i++) {
-        while (shm_ptr->turno) {
-            usleep(100000); // Espera activa
-        }
-        printf("Proceso B leyó: %s\n", shm_ptr->message);
-        snprintf(shm_ptr->message, SHM_SIZE, "Mensaje %d desde Proceso B", i);
-        printf("Proceso B escribió: %s\n", shm_ptr->message);
-        shm_ptr->turno = true;
-    }
-
-    // Desadjuntar la memoria compartida
-    shmdt(shm_ptr);
-    shmctl(shmid, IPC_RMID, NULL); // Eliminar memoria compartida al finalizar
-}
-
-int main() {
     int pid = fork();
-
     if (pid < 0) {
         perror("Error al crear el proceso");
         exit(EXIT_FAILURE);
     }
 
     if (pid == 0) {
-        processA();
+        processA(shm_ptr);
     } else {
-        processB();
+        processB(shm_ptr);
         wait(NULL); // Esperar a que termine el proceso hijo
+        
+        // Desadjuntar y eliminar la memoria compartida al finalizar
+        shmdt(shm_ptr);
+        shmctl(shmid, IPC_RMID, NULL);
     }
 
     return 0;
