@@ -33,11 +33,22 @@ void writer() {
 
     shm_ptr->turno = true;
 
-    // Solo un mensaje
+    // Espera su turno
     while (!shm_ptr->turno) {
         usleep(100000); // Espera activa
     }
-    snprintf(shm_ptr->message, SHM_SIZE, "Hola desde el escritor");
+
+    // Leer mensaje del usuario
+    printf("Ingresa el mensaje para enviar al lector: ");
+    fflush(stdout);
+    fgets(shm_ptr->message, SHM_SIZE, stdin);
+
+    // Eliminar salto de línea si existe
+    size_t len = strlen(shm_ptr->message);
+    if (len > 0 && shm_ptr->message[len - 1] == '\n') {
+        shm_ptr->message[len - 1] = '\0';
+    }
+
     printf("Escritor escribió: %s\n", shm_ptr->message);
     shm_ptr->turno = false;
 
@@ -61,10 +72,11 @@ void reader() {
         exit(EXIT_FAILURE);
     }
 
-    // Solo leer un mensaje
+    // Espera su turno
     while (shm_ptr->turno) {
         usleep(100000); // Espera activa
     }
+
     printf("Lector leyó: %s\n", shm_ptr->message);
     shm_ptr->turno = true;
 
@@ -89,4 +101,3 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
-
