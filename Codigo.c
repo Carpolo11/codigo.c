@@ -19,31 +19,27 @@ void writer() {
     SharedMemory *shm_ptr;
     key_t key = 1234;
 
-    // Crear el segmento de memoria compartida
     shmid = shmget(key, sizeof(SharedMemory), IPC_CREAT | 0666);
     if (shmid == -1) {
         perror("Error al crear segmento de memoria compartida");
         exit(EXIT_FAILURE);
     }
 
-    // Adjuntar el segmento de memoria compartida
     shm_ptr = (SharedMemory *)shmat(shmid, NULL, 0);
     if (shm_ptr == (SharedMemory *)(-1)) {
         perror("Error al adjuntar la memoria compartida");
         exit(EXIT_FAILURE);
     }
 
-    // Inicializar memoria compartida
     shm_ptr->turno = true;
-    
-    for (int i = 0; i < 5; i++) {
-        while (!shm_ptr->turno) {
-            usleep(100000); // Espera activa
-        }
-        snprintf(shm_ptr->message, SHM_SIZE, "Mensaje %d desde el escritor", i);
-        printf("Escritor escribió: %s\n", shm_ptr->message);
-        shm_ptr->turno = false;
+
+    // Solo un mensaje
+    while (!shm_ptr->turno) {
+        usleep(100000); // Espera activa
     }
+    snprintf(shm_ptr->message, SHM_SIZE, "Hola desde el escritor");
+    printf("Escritor escribió: %s\n", shm_ptr->message);
+    shm_ptr->turno = false;
 
     shmdt(shm_ptr);
 }
@@ -53,30 +49,27 @@ void reader() {
     SharedMemory *shm_ptr;
     key_t key = 1234;
 
-    // Obtener el segmento de memoria compartida
     shmid = shmget(key, sizeof(SharedMemory), 0666);
     if (shmid == -1) {
         perror("Error al obtener el segmento de memoria compartida");
         exit(EXIT_FAILURE);
     }
 
-    // Adjuntar el segmento de memoria compartida
     shm_ptr = (SharedMemory *)shmat(shmid, NULL, 0);
     if (shm_ptr == (SharedMemory *)(-1)) {
         perror("Error al adjuntar la memoria compartida");
         exit(EXIT_FAILURE);
     }
 
-    for (int i = 0; i < 5; i++) {
-        while (shm_ptr->turno) {
-            usleep(100000); // Espera activa
-        }
-        printf("Lector leyó: %s\n", shm_ptr->message);
-        shm_ptr->turno = true;
+    // Solo leer un mensaje
+    while (shm_ptr->turno) {
+        usleep(100000); // Espera activa
     }
+    printf("Lector leyó: %s\n", shm_ptr->message);
+    shm_ptr->turno = true;
 
     shmdt(shm_ptr);
-    shmctl(shmid, IPC_RMID, NULL); // Eliminar memoria compartida al finalizar
+    shmctl(shmid, IPC_RMID, NULL); // Eliminar memoria compartida
 }
 
 int main(int argc, char *argv[]) {
@@ -96,3 +89,4 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
+
